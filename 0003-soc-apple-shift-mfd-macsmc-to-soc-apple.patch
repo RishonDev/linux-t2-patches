@@ -1,0 +1,140 @@
+From 9600bde51f58a3987eaeb2dcf9940c2c18c498dc Mon Sep 17 00:00:00 2001
+From: Subu Dwevedi <messigoatcr7nop@gmail.com>
+Date: Thu, 18 Dec 2025 21:30:38 +0530
+Subject: [PATCH 03/15] soc/apple: shift mfd/macsmc to soc/apple
+
+Signed-off-by: Subu Dwevedi <messigoatcr7nop@gmail.com>
+---
+ drivers/gpio/Kconfig                           |  2 +-
+ drivers/mfd/Kconfig                            | 18 ------------------
+ drivers/mfd/Makefile                           |  1 -
+ drivers/power/reset/Kconfig                    |  2 +-
+ drivers/rtc/Kconfig                            |  2 +-
+ drivers/soc/apple/Kconfig                      | 13 +++++++++++++
+ drivers/soc/apple/Makefile                     |  3 +++
+ .../{mfd/macsmc.c => soc/apple/macsmc-rtkit.c} |  0
+ 8 files changed, 19 insertions(+), 22 deletions(-)
+ rename drivers/{mfd/macsmc.c => soc/apple/macsmc-rtkit.c} (100%)
+
+diff --git a/drivers/gpio/Kconfig b/drivers/gpio/Kconfig
+index bd185482a7fd..b372bbe8aa14 100644
+--- a/drivers/gpio/Kconfig
++++ b/drivers/gpio/Kconfig
+@@ -1480,7 +1480,7 @@ config GPIO_LP87565
+ 
+ config GPIO_MACSMC
+ 	tristate "Apple Mac SMC GPIO"
+-	depends on MFD_MACSMC
++	depends on MACSMC_RTKIT
+ 	help
+ 	  Support for GPIOs controlled by the SMC microcontroller on Apple Mac
+ 	  systems.
+diff --git a/drivers/mfd/Kconfig b/drivers/mfd/Kconfig
+index 812cc1676a08..e2bdd997c81c 100644
+--- a/drivers/mfd/Kconfig
++++ b/drivers/mfd/Kconfig
+@@ -325,24 +325,6 @@ config MFD_LOCHNAGAR
+ 	help
+ 	  Support for Cirrus Logic Lochnagar audio development board.
+ 
+-config MFD_MACSMC
+-	tristate "Apple Silicon System Management Controller (SMC)"
+-	depends on ARCH_APPLE || COMPILE_TEST
+-	depends on OF
+-	depends on APPLE_RTKIT
+-	select MFD_CORE
+-	help
+-	  The System Management Controller (SMC) on Apple Silicon machines is a
+-	  piece of hardware that exposes various functionalities such as
+-	  temperature sensors, voltage/power meters, shutdown/reboot handling,
+-	  GPIOs and more.
+-
+-	  Communication happens via a shared mailbox using the RTKit protocol
+-	  which is also used for other co-processors. The SMC protocol then
+-	  allows reading and writing many different keys which implement the
+-	  various features. The MFD core device handles this protocol and
+-	  exposes it to the sub-devices.
+-
+ config MFD_MACSMC_CORE
+ 	tristate "Apple System Management Controller (SMC) Core"
+ 	select MFD_CORE
+diff --git a/drivers/mfd/Makefile b/drivers/mfd/Makefile
+index ccd834e8c3c2..7ca766796c96 100644
+--- a/drivers/mfd/Makefile
++++ b/drivers/mfd/Makefile
+@@ -23,7 +23,6 @@ obj-$(CONFIG_MFD_ENE_KB3930)	+= ene-kb3930.o
+ obj-$(CONFIG_MFD_EXYNOS_LPASS)	+= exynos-lpass.o
+ obj-$(CONFIG_MFD_GATEWORKS_GSC)	+= gateworks-gsc.o
+ obj-$(CONFIG_MFD_MACSMC_CORE)	+= macsmc-core.o
+-obj-$(CONFIG_MFD_MACSMC)	+= macsmc.o
+ 
+ obj-$(CONFIG_MFD_TI_LP873X)	+= lp873x.o
+ obj-$(CONFIG_MFD_TI_LP87565)	+= lp87565.o
+diff --git a/drivers/power/reset/Kconfig b/drivers/power/reset/Kconfig
+index f6c1bcbb57de..cac3ff2fd6ff 100644
+--- a/drivers/power/reset/Kconfig
++++ b/drivers/power/reset/Kconfig
+@@ -130,7 +130,7 @@ config POWER_RESET_LINKSTATION
+ 
+ config POWER_RESET_MACSMC
+ 	tristate "Apple SMC reset/power-off driver"
+-	depends on MFD_MACSMC
++	depends on MACSMC_RTKIT
+ 	help
+ 	  This driver supports reset and power-off on Apple Mac machines
+ 	  that implement this functionality via the SMC.
+diff --git a/drivers/rtc/Kconfig b/drivers/rtc/Kconfig
+index 50dc779f7f98..002600526555 100644
+--- a/drivers/rtc/Kconfig
++++ b/drivers/rtc/Kconfig
+@@ -2100,7 +2100,7 @@ config RTC_DRV_WILCO_EC
+ 
+ config RTC_DRV_MACSMC
+ 	tristate "Apple Mac System Management Controller RTC"
+-	depends on MFD_MACSMC
++	depends on MACSMC_RTKIT
+ 	help
+ 	  If you say yes here you get support for RTC functions
+ 	  inside Apple SPMI PMUs accessed through the SoC's
+diff --git a/drivers/soc/apple/Kconfig b/drivers/soc/apple/Kconfig
+index ad6736889231..c11c03ea5003 100644
+--- a/drivers/soc/apple/Kconfig
++++ b/drivers/soc/apple/Kconfig
+@@ -38,6 +38,19 @@ config APPLE_SART
+ 
+ 	  Say 'y' here if you have an Apple SoC.
+ 
++config MACSMC_RTKIT
++	tristate "Apple Silicon System Management Controller (SMC) Backend"
++	depends on ARCH_APPLE || COMPILE_TEST
++	depends on OF
++	depends on APPLE_RTKIT
++	depends on MFD_MACSMC_CORE
++	help
++	  MACSMC RTKIT allows communicatation with the System Management
++	  Controller on M-series Macs. It is required to use GPIO, control fans
++	  and to control battery start and end threshold.
++
++	  Say 'y' here if you have an Apple Soc
++
+ endmenu
+ 
+ endif
+diff --git a/drivers/soc/apple/Makefile b/drivers/soc/apple/Makefile
+index 4d9ab8f3037b..8236607662e0 100644
+--- a/drivers/soc/apple/Makefile
++++ b/drivers/soc/apple/Makefile
+@@ -8,3 +8,6 @@ apple-rtkit-y = rtkit.o rtkit-crashlog.o
+ 
+ obj-$(CONFIG_APPLE_SART) += apple-sart.o
+ apple-sart-y = sart.o
++
++obj-$(CONFIG_MACSMC_RTKIT) += macsmc-rtkit.o
++macsmc-rtkit-y = macsmc-rtkit.o
+diff --git a/drivers/mfd/macsmc.c b/drivers/soc/apple/macsmc-rtkit.c
+similarity index 100%
+rename from drivers/mfd/macsmc.c
+rename to drivers/soc/apple/macsmc-rtkit.c
+-- 
+2.43.0
+
