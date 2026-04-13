@@ -1,0 +1,177 @@
+From 7a8b70f46a75e31bb2b455b207f32532dee5ef6b Mon Sep 17 00:00:00 2001
+From: Subu Dwevedi <messigoatcr7nop@gmail.com>
+Date: Thu, 18 Dec 2025 22:43:51 +0530
+Subject: [PATCH 10/15] hwmon/macsmc: add support for more types
+
+Signed-off-by: Subu Dwevedi <messigoatcr7nop@gmail.com>
+---
+ drivers/hwmon/Kconfig        |   2 +-
+ drivers/hwmon/macsmc-hwmon.c | 118 +++++++++++++++++++++++++++++++++++
+ 2 files changed, 119 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/hwmon/Kconfig b/drivers/hwmon/Kconfig
+index 157678b821fc..8ef862178d6e 100644
+--- a/drivers/hwmon/Kconfig
++++ b/drivers/hwmon/Kconfig
+@@ -1176,7 +1176,7 @@ config SENSORS_LTQ_CPUTEMP
+ 
+ config SENSORS_MACSMC_HWMON
+ 	tristate "Apple SMC (Apple Silicon)"
+-	depends on MFD_MACSMC && OF
++	depends on MFD_MACSMC_CORE
+ 	help
+ 	  This driver enables hwmon support for current, power, temperature,
+ 	  and voltage sensors, as well as fan speed reporting and control
+diff --git a/drivers/hwmon/macsmc-hwmon.c b/drivers/hwmon/macsmc-hwmon.c
+index 1c0bbec7e8eb..4b412fa1b37c 100644
+--- a/drivers/hwmon/macsmc-hwmon.c
++++ b/drivers/hwmon/macsmc-hwmon.c
+@@ -182,6 +182,22 @@ static int macsmc_hwmon_read_f32_scaled(struct apple_smc *smc, smc_key key,
+ 	return 0;
+ }
+ 
++/* Older Macs uses fpe2 (16-bit 14.2 floating digit) for fan speed
++ * We are going to discard the first 2 bits to speed up calc time
++ */
++static int macsmc_hwmon_read_fpe2(struct apple_smc *smc, smc_key key, u16 *p)
++{
++	u16 val;
++	int ret;
++
++	ret = apple_smc_read_u16(smc, key, &val);
++	if (ret < 0)
++		return ret;
++
++	*p = (be16_to_cpu(val) >> 2);
++	return 0;
++}
++
+ /*
+  * The SMC has keys of multiple types, denoted by a FourCC of the same format
+  * as the key ID. We don't know what data type a key encodes until we poke at it.
+@@ -191,6 +207,7 @@ static int macsmc_hwmon_read_key(struct apple_smc *smc,
+ 				 long *val)
+ {
+ 	int ret;
++	s16 sp_;
+ 
+ 	switch (sensor->info.type_code) {
+ 	/* 32-bit IEEE 754 float */
+@@ -217,6 +234,105 @@ static int macsmc_hwmon_read_key(struct apple_smc *smc,
+ 		*val = (long)ioft;
+ 		break;
+ 	}
++	case __SMC_KEY('u', 'i', '8', ' '): {
++		u8 ui8_;
++
++		ret = apple_smc_read_u8(smc, sensor->macsmc_key, &ui8_);
++		if (ret)
++			return ret;
++
++		*val = ui8_;
++		break;
++	}
++	case __SMC_KEY('s', 'i', '8', ' '): {
++		s8 si8_;
++
++		ret = apple_smc_read_s8(smc, sensor->macsmc_key, &si8_);
++		if (ret)
++			return ret;
++
++		*val = si8_;
++		break;
++	}
++	case __SMC_KEY('u', 'i', '1', '6'): {
++		u16 ui16_;
++
++		ret = apple_smc_read_u16(smc, sensor->macsmc_key, &ui16_);
++		if (ret)
++			return ret;
++
++		*val = ui16_;
++		break;
++	}
++
++	case __SMC_KEY('s', 'i', '1', '6'): {
++		s16 si16_;
++
++		ret = apple_smc_read_s16(smc, sensor->macsmc_key, &si16_);
++		if (ret)
++			return ret;
++
++		*val = si16_;
++		break;
++	}
++
++	case __SMC_KEY('u', 'i', '3', '2'): {
++		u32 ui32_;
++
++		ret = apple_smc_read_u32(smc, sensor->macsmc_key, &ui32_);
++		if (ret)
++			return ret;
++
++		*val = ui32_;
++		break;
++	}
++	case __SMC_KEY('s', 'i', '3', '2'): {
++		s32 si32_;
++
++		ret = apple_smc_read_s32(smc, sensor->macsmc_key, &si32_);
++		if (ret)
++			return ret;
++
++		*val = si32_;
++		break;
++	}
++	case __SMC_KEY('f', 'p', 'e', '2'): {
++		u16 fpe2_;
++
++		ret = macsmc_hwmon_read_fpe2(smc, sensor->macsmc_key, &fpe2_);
++		if (ret)
++			return ret;
++
++		*val = fpe2_;
++		break;
++	}
++
++#define MACSMC_SP_OPS(name_1, name_2, bit) \
++	case __SMC_KEY('s', 'p', name_1, name_2): { \
++		ret = apple_smc_read_s16(smc, sensor->macsmc_key, &sp_); \
++		if (ret) \
++			return ret; \
++		*val = mult_frac((s16)cpu_to_be16(sp_), scale, BIT(bit)); \
++		break; \
++	}
++
++	MACSMC_SP_OPS('0', 'f', 0xF)
++	MACSMC_SP_OPS('1', 'e', 0xE)
++	MACSMC_SP_OPS('2', 'd', 0xD)
++	MACSMC_SP_OPS('3', 'c', 0xC)
++	MACSMC_SP_OPS('4', 'b', 0xB)
++	MACSMC_SP_OPS('5', 'a', 0xA)
++	MACSMC_SP_OPS('6', '9', 0x9)
++	MACSMC_SP_OPS('7', '8', 0x8)
++	MACSMC_SP_OPS('8', '7', 0x7)
++	MACSMC_SP_OPS('9', '6', 0x6)
++	MACSMC_SP_OPS('a', '5', 0x5)
++	MACSMC_SP_OPS('b', '4', 0x4)
++	MACSMC_SP_OPS('c', '3', 0x3)
++	MACSMC_SP_OPS('d', '2', 0x2)
++	MACSMC_SP_OPS('e', '1', 0x1)
++	MACSMC_SP_OPS('f', '0', 0x0)
++
+ 	default:
+ 		return -EOPNOTSUPP;
+ 	}
+@@ -262,6 +378,8 @@ static int macsmc_hwmon_write_key(struct apple_smc *smc,
+ 	/* unsigned 8-bit integer */
+ 	case __SMC_KEY('u', 'i', '8', ' '):
+ 		return apple_smc_write_u8(smc, sensor->macsmc_key, val);
++	case __SMC_KEY('f', 'p', 'e', '2'):
++		return apple_smc_write_u16(smc, sensor->macsmc_key, cpu_to_be16(val << 2));
+ 	default:
+ 		return -EOPNOTSUPP;
+ 	}
+-- 
+2.43.0
+
